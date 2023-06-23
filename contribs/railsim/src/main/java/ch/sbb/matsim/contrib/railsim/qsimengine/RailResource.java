@@ -10,7 +10,7 @@ import java.util.Set;
 /**
  * A resource representing multiple {@link RailLink}.
  */
-public class RailResource {
+public class RailResource implements RailLinkOrResource {
 
 	/**
 	 * Links belonging to this resource.
@@ -38,7 +38,7 @@ public class RailResource {
 	/**
 	 * Whether an agent is able to block this resource.
 	 */
-	boolean hasCapacity() {
+	public boolean hasCapacity() {
 		return reservations.size() < capacity;
 	}
 

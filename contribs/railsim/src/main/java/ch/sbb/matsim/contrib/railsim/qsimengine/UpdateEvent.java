@@ -12,14 +12,14 @@ final class UpdateEvent implements Comparable<UpdateEvent> {
 	Type type;
 
 	/**
-	 * Timestamp when next reservation will be checked.
-	 */
-	double checkReservation = -1;
-
-	/**
 	 * Whether train is waiting on the very link end for the next to be unblocked.
 	 */
 	boolean waitingForLink;
+
+	/**
+	 * Currently waiting for reservation on some link.
+	 */
+	boolean waitingForReservation;
 
 	/**
 	 * Stores a link that is should to be released.
@@ -68,7 +68,7 @@ final class UpdateEvent implements Comparable<UpdateEvent> {
 	 * This train currently waits for an reservation for blocked tracks.
 	 */
 	boolean isAwaitingReservation() {
-		return checkReservation >= 0;
+		return waitingForReservation;
 	}
 
 	/**
@@ -83,7 +83,6 @@ final class UpdateEvent implements Comparable<UpdateEvent> {
 		LEAVE_LINK,
 		RELEASE_TRACK,
 		BLOCK_TRACK,
-		WAIT_FOR_RESERVATION,
 		SPEED_CHANGE,
 		UNBLOCK_LINK
 

@@ -187,13 +187,14 @@ public class RailsimEngineTest {
 
 		test.doSimStepUntil(30000);
 
+//		test.debugFiles(collector, "varyingSpeed_many");
+
 		RailsimTestUtils.assertThat(collector)
 			.hasTrainState("regio0", 7599, 0, 2.7777777)
 			.hasTrainState("regio0", 7674, 200, 0)
 			.hasTrainState("regio1", 7734, 200, 0)
 			.hasTrainState("regio9", 23107, 200, 0);
 
-//		test.debug(collector, "varyingSpeed_many");
 
 		test = getTestEngine("network1.xml");
 

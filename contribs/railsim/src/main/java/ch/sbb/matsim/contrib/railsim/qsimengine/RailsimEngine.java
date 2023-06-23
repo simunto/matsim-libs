@@ -26,17 +26,17 @@ final class RailsimEngine implements Steppable {
 
 	private static final Logger log = LogManager.getLogger(RailsimEngine.class);
 
-	/**
-	 * If trains need to wait, they will check every x seconds if they can proceed.
-	 */
-	private static final double POLL_INTERVAL = 10;
-
 	private final EventsManager eventsManager;
 	private final RailsimConfigGroup config;
 
 	private final List<TrainState> activeTrains = new ArrayList<>();
 
 	private final Queue<UpdateEvent> updateQueue = new PriorityQueue<>();
+
+	/**
+	 * Stores events that are currently waiting for reservation on a specific link.
+	 */
+	private final Map<RailLinkOrResource, Set<UpdateEvent>> waitingQueue = new HashMap<>();
 
 	private final RailResourceManager resources;
 	private final TrainDisposition disposition;
@@ -132,9 +132,8 @@ final class RailsimEngine implements Steppable {
 			case ENTER_LINK -> enterLink(time, event);
 			case LEAVE_LINK -> leaveLink(time, event);
 			case BLOCK_TRACK -> blockTrack(time, event);
-			case WAIT_FOR_RESERVATION -> checkTrackReservation(time, event);
 			case UNBLOCK_LINK -> {
-				unblockTrack(time, event.state,  event.unblockLink);
+				unblockTrack(time, event.state, event.unblockLink);
 				// event will be removed
 				event.type = UpdateEvent.Type.IDLE;
 			}
@@ -161,15 +160,12 @@ final class RailsimEngine implements Steppable {
 
 		updatePosition(time, event);
 
-		if (!blockLinkTracks(time, state)) {
+		if (!blockLinkTracks(time, event)) {
 
 			decideTargetSpeed(event, state);
-
-			event.checkReservation = time + POLL_INTERVAL;
 			decideNextUpdate(event);
 
 		} else {
-			event.checkReservation = -1;
 			decideNextUpdate(event);
 		}
 	}
@@ -181,16 +177,10 @@ final class RailsimEngine implements Steppable {
 		// train might be at the end of route already
 		RailLink nextLink = state.isRouteAtEnd() ? null : state.route.get(state.routeIdx);
 
-		boolean allBlocked = blockLinkTracks(time, state);
+		boolean allBlocked = blockLinkTracks(time, event);
 
 		// Driver can advance if the next link is already free
 		if (allBlocked || (nextLink != null && nextLink.isBlockedBy(state.driver))) {
-
-			if (allBlocked)
-				event.checkReservation = -1;
-			else {
-				event.checkReservation = time + POLL_INTERVAL;
-			}
 
 			// Train already waits at the end of previous link
 			if (event.waitingForLink) {
@@ -207,13 +197,8 @@ final class RailsimEngine implements Steppable {
 			}
 
 		} else {
-
-			event.checkReservation = time + POLL_INTERVAL;
-
 			// If train is already standing still and waiting, there is no update needed.
-			if (event.waitingForLink) {
-				event.plannedTime = time + POLL_INTERVAL;
-			} else {
+			if (!event.waitingForLink) {
 				decideNextUpdate(event);
 			}
 		}
@@ -232,7 +217,7 @@ final class RailsimEngine implements Steppable {
 		state.tailPosition = firstLink.length - state.train.length();
 
 		// reserve links and start if first one is free
-		if (blockLinkTracks(time, state) || resources.isBlockedBy(firstLink, state.driver)) {
+		if (blockLinkTracks(time, event) || resources.isBlockedBy(firstLink, state.driver)) {
 
 			createEvent(new PersonEntersVehicleEvent(time, state.driver.getId(), state.driver.getVehicle().getId()));
 			createEvent(new VehicleEntersTrafficEvent(time, state.driver.getId(),
@@ -259,15 +244,16 @@ final class RailsimEngine implements Steppable {
 			}
 
 		} else {
-			// vehicle will wait and call departure again
-			event.plannedTime += POLL_INTERVAL;
+			event.plannedTime = Double.POSITIVE_INFINITY;
 		}
 	}
 
 	/**
 	 * Reserve links in advance as necessary.
 	 */
-	private boolean blockLinkTracks(double time, TrainState state) {
+	private boolean blockLinkTracks(double time, UpdateEvent event) {
+
+		TrainState state = event.state;
 
 		List<RailLink> links = RailsimCalc.calcLinksToBlock(state, resources.getLink(state.headLink));
 
@@ -335,6 +321,13 @@ final class RailsimEngine implements Steppable {
 
 		List<RailLink> blocked = disposition.blockRailSegment(time, state.driver, links);
 
+		for (RailLink link : links) {
+			if (!link.isBlockedBy(state.driver)) {
+				event.waitingForReservation = true;
+				waitingQueue.computeIfAbsent(resources.getLinkOrResource(link.getLinkId()), (k) -> new LinkedHashSet<>()).add(event);
+			}
+		}
+
 		// Only continue successfully if all requested link have been blocked
 		return links.size() == blocked.size();
 	}
@@ -367,7 +360,10 @@ final class RailsimEngine implements Steppable {
 			// Free all reservations
 			for (RailLink link : state.route) {
 				if (link.isBlockedBy(state.driver)) {
-					disposition.unblockRailLink(time, state.driver, link);
+					if (link.minimumHeadwayTime == 0)
+						unblockTrack(time, state, link);
+					else
+						updateQueue.add(new UpdateEvent(state, link, time));
 				}
 			}
 
@@ -381,14 +377,13 @@ final class RailsimEngine implements Steppable {
 		}
 
 		// Train stopped and reserves next links
-		if (FuzzyUtils.equals(state.speed, 0) && !blockLinkTracks(time, state)) {
+		if (FuzzyUtils.equals(state.speed, 0) && !blockLinkTracks(time, event)) {
 
 			RailLink currentLink = state.route.get(state.routeIdx);
 			// If this linked is blocked the driver can continue
 			if (!currentLink.isBlockedBy(state.driver)) {
 				event.waitingForLink = true;
-				event.type = UpdateEvent.Type.WAIT_FOR_RESERVATION;
-				event.plannedTime = time + POLL_INTERVAL;
+				event.plannedTime = Double.POSITIVE_INFINITY;
 				return;
 			}
 		}
@@ -454,6 +449,30 @@ final class RailsimEngine implements Steppable {
 	 */
 	private void unblockTrack(double time, TrainState state, RailLink unblockLink) {
 		disposition.unblockRailLink(time, state.driver, unblockLink);
+
+		RailLinkOrResource res = resources.getLinkOrResource(unblockLink.getLinkId());
+
+		if (waitingQueue.containsKey(res) && waitingQueue.get(res).size() > 0) {
+
+			Iterator<UpdateEvent> it = waitingQueue.get(res).iterator();
+			UpdateEvent next = it.next();
+
+			// this checks link and also resource
+			if (!resources.hasCapacity(unblockLink.getLinkId()))
+				return;
+
+			it.remove();
+
+			next.waitingForReservation = false;
+
+			// Train still departing need different update loop
+			if (next.type == UpdateEvent.Type.DEPARTURE)
+				updateDeparture(time, next);
+			else
+				checkTrackReservation(time, next);
+
+		}
+
 	}
 
 	/**
@@ -614,18 +633,6 @@ final class RailsimEngine implements Steppable {
 
 		// dist is the minimum of all supplied distances
 		event.plannedTime = state.timestamp + RailsimCalc.calcRequiredTime(state, dist);
-
-		// There could be old reservations events that need to be checked first
-		if (event.isAwaitingReservation() && event.checkReservation < state.timestamp) {
-			event.checkReservation = state.timestamp;
-		}
-
-		// insert reservation event if necessary
-		if (event.isAwaitingReservation() && event.plannedTime > event.checkReservation) {
-
-			event.type = UpdateEvent.Type.WAIT_FOR_RESERVATION;
-			event.plannedTime = event.checkReservation;
-		}
 
 		assert Double.isFinite(event.plannedTime) : "Planned update time must be finite, but was " + event.plannedTime;
 		assert event.plannedTime >= state.timestamp : "Planned time must be after current time";

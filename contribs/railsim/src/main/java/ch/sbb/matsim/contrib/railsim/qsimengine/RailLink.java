@@ -13,7 +13,7 @@ import java.util.Objects;
 /**
  * Rail links which can has multiple tracks and corresponds to exactly one link.
  */
-public final class RailLink implements HasLinkId {
+public final class RailLink implements RailLinkOrResource, HasLinkId {
 
 	private final Id<Link> id;
 
@@ -96,7 +96,7 @@ public final class RailLink implements HasLinkId {
 	/**
 	 * Whether at least one track is free.
 	 */
-	boolean hasFreeTrack() {
+	public boolean hasCapacity() {
 		for (TrackState trackState : state) {
 			if (trackState == TrackState.FREE)
 				return true;

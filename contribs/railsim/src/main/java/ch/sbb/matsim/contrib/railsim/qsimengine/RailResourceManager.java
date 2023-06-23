@@ -77,6 +77,19 @@ public final class RailResourceManager {
 	}
 
 	/**
+	 * Return link or resource (if there is one associated).
+	 */
+	public RailLinkOrResource getLinkOrResource(Id<Link> id) {
+
+		RailLink link = links.get(id);
+
+		if (link.resource == null)
+			return link;
+
+		return resources.get(link.getResourceId());
+	}
+
+	/**
 	 * Try to block a resource for a specific driver.
 	 *
 	 * @return true if the resource is now blocked or was blocked for this driver already.
@@ -128,7 +141,7 @@ public final class RailResourceManager {
 			}
 		}
 
-		if (link.hasFreeTrack()) {
+		if (link.hasCapacity()) {
 			int track = link.blockTrack(driver);
 			eventsManager.processEvent(new RailsimLinkStateChangeEvent(Math.ceil(time), link.getLinkId(),
 				driver.getVehicle().getId(), TrackState.BLOCKED, track));
@@ -146,7 +159,7 @@ public final class RailResourceManager {
 
 		RailLink l = getLink(link);
 
-		if (!l.hasFreeTrack())
+		if (!l.hasCapacity())
 			return false;
 
 		RailResource res = getResource(l.getResourceId());
