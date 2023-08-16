@@ -10,7 +10,6 @@ import org.matsim.api.core.v01.Id;
 import org.matsim.api.core.v01.Scenario;
 import org.matsim.api.core.v01.TransportMode;
 import org.matsim.api.core.v01.network.Link;
-import org.matsim.contrib.vsp.scenario.SnzActivities;
 import org.matsim.core.config.Config;
 import org.matsim.core.config.ConfigUtils;
 import org.matsim.core.controler.AbstractModule;
@@ -50,7 +49,8 @@ public class RailsimIntegrationTest {
 		config.controler().setLastIteration(0);
 		config.controler().setOutputDirectory(utils.getOutputDirectory());
 		config.controler().setCreateGraphs(false);
-		config.controler().setDumpDataAtEnd(false);
+		config.controler().setDumpDataAtEnd(true);
+		config.controler().setWriteEventsInterval(1);
 
 		Scenario scenario = ScenarioUtils.loadScenario(config);
 
@@ -95,7 +95,7 @@ public class RailsimIntegrationTest {
 		Config config = ConfigUtils.loadConfig(new File(scenarioDir, "config.xml").toString());
 
 		config.controler().setOutputDirectory(utils.getOutputDirectory());
-		config.controler().setDumpDataAtEnd(false);
+		config.controler().setDumpDataAtEnd(true);
 		config.controler().setCreateGraphs(false);
 		config.controler().setLastIteration(0);
 
